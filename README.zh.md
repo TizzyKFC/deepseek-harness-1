@@ -2,6 +2,11 @@
 
 [English](README.md) | 中文
 
+> **本地桌面变体。** 本仓库在官方 `deepseek-harness` 之上叠加了一个 Tauri **macOS
+> 桌面应用**（Dock 应用，内嵌运行 Web UI；见 [`desktop/README.md`](desktop/README.md)）
+> 与内置 UI 定制（Blue Fantasy 主题切换、官方更新检查）。本地改动的完整清单及跟随
+> 官方版本升级时的重放方式见 [`CUSTOMIZATIONS.md`](CUSTOMIZATIONS.md)。
+
 DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
 
 它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。

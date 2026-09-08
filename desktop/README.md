@@ -19,10 +19,24 @@
 
 - 首次启动会把内置的 harness（约 1.5GB 源码+依赖）解压到应用数据目录，耗时十几秒到几十秒，之后秒开
 - 数据目录：`~/Library/Application Support/com.deepseek-ai.harness.desktop/`
-  - `harness/` — 解压出的项目（内置、只读用途）
-  - `dsh/` — 应用的 DSH_HOME（profile、会话、日志都在这）
+  - `harness-<版本>/` — 解压出的项目（按 app 版本隔离：同版本带 `.extracted` 标记直接复用，升版本自动重新解压并清理旧目录）
+  - `dsh/` — 应用的 DSH_HOME（profile、会话、设置都在这）
   - `dsh/server.log` — 服务器诊断日志
+  - `update-check.log` / `update-check.json` / `update-notice.json` — 启动更新检查的日志 / 去重状态 / 结构化结果
 - 每次启动自动运行 `dsh web --port 0`（端口由系统分配，仅监听 `127.0.0.1`），关闭应用自动停止
+
+## 内置主题（Blue Fantasy 切换）
+
+- 应用内置 **Blue Fantasy（鲸鱼娘）** 主题作为默认外观，无需安装任何皮肤插件。
+- 左侧导航栏有 **主题** 按钮，可在 Blue Fantasy 与默认主题之间即时切换；选择持久保存在 `dsh/settings.yaml` 的 `skin.theme` 段，重启后保持。
+- 该功能由内置插件 `@deepseek-ai/dsh-client-ui-skin-toggle` 提供，皮肤资产（样式、鲸鱼背景、图标）已内置、完全自包含。
+
+## 启动更新检查
+
+每次启动 app 会在后台检查官方 `deepseek-ai/deepseek-harness` 是否有新版本 tag：
+
+- 发现新版 → 弹出**版本对话框**（显示 当前版本 → 最新版本，可一键跳转 GitHub 发布页），并写 `update-notice.json`；同一版本只提醒一次。
+- 仅提醒，**不自动下载/覆盖**；升级方式见文末「跟随官方升级」。
 
 ## 配置 API Key
 
@@ -69,6 +83,9 @@ npm run dmg        # = prep-bundle.sh + tauri build --bundles dmg
 
 可选环境变量：`DSH_DESKTOP_NODE_VERSION`（默认 26.7.0）、`DSH_DESKTOP_PNPM_VERSION`（默认 11.7.0）。
 
+> 版本三处同步：`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`package.json`。
+> 升版本后**删除**数据目录里的 `harness-<旧版本>`，否则同版本会复用旧解压而不重新解压。
+
 ## 结构
 
 ```
@@ -89,3 +106,20 @@ desktop/
 - **符号链接环**：pnpm 的 `node_modules` 含符号链接环，Tauri 资源复制会跟随链接而失败；因此项目以 **tar 归档** 打包（tar 不跟随链接、完整保留链接环），首次启动用系统 `tar` 解压。
 - **插件管理**：Rust 壳调用 harness 自带的 `dsh plugin --profile web` 命令，并把内置 pnpm/node 的 bin 目录前置到 PATH，复用 harness 的 profile 初始化与 bundle 调和逻辑。
 - **安全**：服务器仅监听 `127.0.0.1`，不对外暴露。
+
+## 跟随官方升级（保留本地定制）
+
+本仓库 = 官方 `deepseek-ai/deepseek-harness` 源码 + 桌面定制，已用 git 管理并推送
+到用户自己的远端。**定制明细、修改点与重放方式见仓库根 `CUSTOMIZATIONS.md`**。
+
+收到更新提醒后，升级 harness 内部（通常不必重打包）：
+
+1. 取官方新 tag 源码树（本仓库已配 `upstream` 指向官方，可 `git fetch upstream` 或下载官方 tar）。
+2. 跑 `desktop/scripts/apply-customizations.sh <官方新树>`：自动把 `desktop/` 与
+   `packages/client/ui-skin-toggle/` 复制进新树，并列出需手工合并的文件。
+3. 按 `CUSTOMIZATIONS.md` 的 B 段合并那几处官方文件的修改（这是唯一需要人工的点）。
+4. 在新树内 `pnpm install && pnpm run build`。
+5. 退出 app，用 tar 把新树重建到数据目录 `harness-<版本>`（写入 `echo ok > .extracted`），
+   重启 app。用户数据在 `dsh/`，不受影响。
+
+需要连同桌面壳一起更新（改了 `desktop/` 内 Rust/配置）时，才走上面的「重新打包」。
