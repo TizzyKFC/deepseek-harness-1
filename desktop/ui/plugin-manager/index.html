@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>插件管理器</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --bg-layer-1: #ffffff;
+        --bg-layer-2: #f5f6f7;
+        --bg-hover: #ebeef2;
+        --border: rgba(0, 0, 0, 0.1);
+        --text: #0f1115;
+        --text-secondary: #61666b;
+        --text-muted: #81858c;
+        --brand: #4176e6;
+        --brand-hover: #679efe;
+        --link: #4176e6;
+        --on-brand: #ffffff;
+        --danger-hover: #ef4444;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #151517;
+          --bg-layer-1: #232324;
+          --bg-layer-2: #2c2c2e;
+          --bg-hover: #353638;
+          --border: rgba(255, 255, 255, 0.12);
+          --text: #f9fafb;
+          --text-secondary: #cfd3d6;
+          --text-muted: #81858c;
+          --brand: #4176e6;
+          --brand-hover: #679efe;
+          --link: #679efe;
+          --on-brand: #ffffff;
+          --danger-hover: #ef4444;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+        display: flex; flex-direction: column; gap: 14px; padding: 16px;
+      }
+      h1 { font-size: 16px; margin: 0 0 4px; color: var(--text); }
+      h2 { font-size: 12px; margin: 0 0 6px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+      header p { margin: 0; color: var(--text-secondary); font-size: 12px; }
+      section { background: var(--bg-layer-1); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; }
+      input {
+        flex: 1; min-width: 200px; background: var(--bg-layer-2); color: var(--text);
+        border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font: inherit;
+      }
+      input:focus { outline: none; border-color: var(--brand); }
+      button {
+        background: var(--bg-layer-2); color: var(--text); border: 1px solid var(--border);
+        border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;
+      }
+      button:hover { background: var(--bg-hover); }
+      button.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+      button.primary:hover { background: var(--brand-hover); }
+      button.danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); color: var(--on-brand); }
+      ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+      li {
+        background: var(--bg-layer-2); border: 1px solid var(--border); border-radius: 999px;
+        padding: 2px 10px; font-size: 12px; color: var(--text);
+      }
+      li.bundle { border-color: var(--link); color: var(--link); }
+      li.muted { color: var(--text-muted); border-style: dashed; }
+      pre {
+        background: var(--bg-layer-2); border: 1px solid var(--border); border-radius: 6px;
+        padding: 10px; margin: 0; overflow: auto; max-height: 280px;
+        white-space: pre-wrap; word-break: break-all; color: var(--text-secondary);
+      }
+      .hint { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+      .error { color: var(--danger-hover); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>插件管理器</h1>
+      <p>管理 DeepSeek Harness 的 web 插件（profile: web）。安装后需「重启应用」生效。</p>
+    </header>
+
+    <section>
+      <h2>安装 / 卸载</h2>
+      <div class="row">
+        <input id="pkg" placeholder="包名，如 @scope/dsh-plugin-xxx" spellcheck="false" />
+        <button id="add" class="primary">安装</button>
+        <button id="remove" class="danger">卸载</button>
+        <button id="update">更新全部</button>
+        <button id="restart">重启应用</button>
+      </div>
+      <div class="hint">支持 npm 包名、git 地址、绝对路径。git 依赖被 pnpm 阻止构建时，按输出提示在 profile 的 pnpm-workspace.yaml 里加入 allowBuilds。</div>
+    </section>
+
+    <section>
+      <h2>已安装依赖</h2>
+      <ul id="deps"></ul>
+    </section>
+
+    <section>
+      <h2>激活的 bundle 层</h2>
+      <ul id="bundles"></ul>
+    </section>
+
+    <section>
+      <h2>输出</h2>
+      <pre id="output">就绪。</pre>
+    </section>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const invoke = window.__TAURI__.core.invoke;
+
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+
+      const out = (text) => {
+        $('output').textContent = text ?? '';
+        $('output').scrollTop = $('output').scrollHeight;
+      };
+
+      async function refresh() {
+        try {
+          const st = await invoke('plugin_status');
+          $('deps').innerHTML = (st.dependencies.length
+            ? st.dependencies.map((d) => `<li>${esc(d)}</li>`).join('')
+            : '<li class="muted">（暂无外部依赖）</li>');
+          $('bundles').innerHTML = (st.bundles.length
+            ? st.bundles.map((b) => `<li class="bundle">${esc(b)}</li>`).join('')
+            : '<li class="muted">（无）</li>');
+        } catch (e) {
+          out('读取状态失败：' + e);
+        }
+      }
+
+      async function run(args) {
+        if (args[0] !== 'update') {
+          const pkg = $('pkg').value.trim();
+          if (!pkg) { out('请先输入包名。'); return; }
+          args.push(pkg);
+        }
+        out('运行中…');
+        try {
+          const r = await invoke('plugin_run', { args });
+          out('退出码 ' + r.exit_code + '\n' + r.output);
+        } catch (e) {
+          out('调用失败：' + e);
+        }
+        await refresh();
+      }
+
+      $('add').addEventListener('click', () => run(['add']));
+      $('remove').addEventListener('click', () => run(['remove']));
+      $('update').addEventListener('click', () => run(['update']));
+      $('restart').addEventListener('click', async () => {
+        try { await invoke('restart_app'); } catch (e) { out('重启失败：' + e); }
+      });
+      $('pkg').addEventListener('keydown', (e) => { if (e.key === 'Enter') run(['add']); });
+
+      refresh();
+    </script>
+  </body>
+</html>

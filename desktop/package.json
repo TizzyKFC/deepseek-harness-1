@@ -1,0 +1,17 @@
+{
+  "name": "dsh-desktop",
+  "version": "0.1.1",
+  "private": true,
+  "description": "DeepSeek Harness desktop shell (Tauri) — runs the bundled dsh web server and shows it in a native macOS window",
+  "type": "module",
+  "scripts": {
+    "prep": "bash scripts/prep-bundle.sh",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dmg": "bash scripts/prep-bundle.sh && tauri build --bundles dmg",
+    "icon": "tauri icon"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

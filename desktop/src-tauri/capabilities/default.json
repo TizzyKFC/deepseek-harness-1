@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main window (incl. the local harness origin)",
+  "windows": ["main", "plugin-manager"],
+  "remote": {
+    "urls": ["http://127.0.0.1/*"]
+  },
+  "permissions": ["core:default"]
+}

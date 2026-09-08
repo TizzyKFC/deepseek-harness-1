@@ -1,0 +1,6 @@
+# dsh-client-ui-skin-toggle bundle patch: inserts the skin-toggle row into the
+# web plugin roster. The row is the web-UI surface for the desktop shell's
+# `set_theme` Tauri command (Blue Fantasy skin on/off).
+- insert:
+    - id: ui-skin-toggle
+      name: '@deepseek-ai/dsh-client-ui-skin-toggle'

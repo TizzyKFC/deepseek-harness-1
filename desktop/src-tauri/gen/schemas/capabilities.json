@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capability for the main window (incl. the local harness origin)","remote":{"urls":["http://127.0.0.1/*"]},"local":true,"windows":["main","plugin-manager"],"permissions":["core:default"]}}
