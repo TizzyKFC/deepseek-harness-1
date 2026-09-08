@@ -433,66 +433,168 @@ pub fn run() {
                                 .find(|(key, _)| key == "token")
                                 .map(|(_, value)| value.into_owned())
                                 .unwrap_or_default();
+                            // New-architecture (0.1.3) browser-session auth. The
+                            // server serves its index only to requests carrying an
+                            // HttpOnly cookie that a `?token=` GET exchanges
+                            // (303 + Set-Cookie). A WKWebView top-level navigation
+                            // does not retain that 303 cookie, so a window pointed
+                            // at the token URL renders the raw "authentication
+                            // required" page. All webviews in this app share one
+                            // WKWebsiteDataStore, so the exchange is run invisibly
+                            // in a hidden window (a same-origin fetch stores the
+                            // cookie) and the main window is then navigated straight
+                            // to the clean root, which serves the UI directly — the
+                            // main window never renders the 401. A fast-then-slow
+                            // fallback poll on the main window still covers the rare
+                            // case where the hidden exchange has not landed before
+                            // the main navigation.
+                            let clean_url = {
+                                let mut clean = url.clone();
+                                clean.set_path("/");
+                                clean.set_query(None);
+                                clean.set_fragment(None);
+                                clean.to_string()
+                            };
                             let win = window.clone();
-                            // Owned handle for the auth-handshake thread; the
-                            // outer handle stays free for run_on_main_thread.
-                            let handshake_handle = handle.clone();
-                            let dispatched = handle.run_on_main_thread(move || {
-                                eprintln!("[dsh] run_on_main_thread: navigating to {url}");
-                                match win.navigate(url.clone()) {
-                                    Ok(()) => {
-                                        eprintln!("[dsh] navigate() ok");
-                                        // New-architecture (0.1.3) browser-session auth:
-                                        // WKWebView does not retain the HttpOnly cookie that
-                                        // answers the `?token=` 303 of a top-level
-                                        // navigation, leaving the window on the server's
-                                        // "authentication required" text. Drive the same
-                                        // exchange through a same-origin `fetch` (the
-                                        // subresource path stores the cookie), reloading the
-                                        // clean root once it is held. Repeated evals make the
-                                        // handshake robust to load timing.
-                                        if !token.is_empty() {
-                                            let win = win.clone();
-                                            let token = token.clone();
-                                            std::thread::spawn(move || {
-                                                for delay_ms in [1200u64, 2600, 4200] {
-                                                    std::thread::sleep(Duration::from_millis(delay_ms));
-                                                    let win = win.clone();
-                                                    let token = token.clone();
-                                                    let dispatched =
-                                                        handshake_handle.run_on_main_thread(move || {
-                                                        match win.eval(&auth_handshake_js(&token)) {
-                                                            Ok(()) => {
-                                                                eprintln!("[dsh] auth handshake eval ok")
-                                                            }
-                                                            Err(e) => eprintln!(
-                                                                "[dsh] auth handshake eval failed: {e}"
-                                                            ),
-                                                        }
-                                                    });
-                                                    if dispatched.is_err() {
+                            let dispatch_handle = handle.clone();
+                            std::thread::spawn(move || {
+                                let need_auth = !token.is_empty();
+                                if need_auth {
+                                    let token_url = url.to_string();
+                                    let h_auth = dispatch_handle.clone();
+                                    let h_build = h_auth.clone();
+                                    let created = h_auth.run_on_main_thread(move || {
+                                        match WebviewWindowBuilder::new(
+                                            &h_build,
+                                            "auth-boot",
+                                            WebviewUrl::External(
+                                                token_url.parse().expect("harness URL parses"),
+                                            ),
+                                        )
+                                        .title("DeepSeek Harness 认证")
+                                        .inner_size(1.0, 1.0)
+                                        .visible(false)
+                                        .skip_taskbar(true)
+                                        .build()
+                                        {
+                                            Ok(auth) => {
+                                                eprintln!("[dsh] auth window created (hidden)");
+                                                let _ = auth.hide();
+                                            }
+                                            Err(e) => {
+                                                eprintln!("[dsh] auth window create failed: {e}");
+                                            }
+                                        }
+                                    });
+                                    if created.is_err() {
+                                        eprintln!("[dsh] auth window dispatch failed");
+                                    }
+                                    // Let the hidden window land on the origin's 401
+                                    // page, then store the session cookie via a
+                                    // same-origin fetch.
+                                    std::thread::sleep(Duration::from_millis(900));
+                                    if created.is_ok() {
+                                        let h_fetch = dispatch_handle.clone();
+                                        let h_get = h_fetch.clone();
+                                        let token = token.clone();
+                                        let _ = h_fetch.run_on_main_thread(move || {
+                                            if let Some(auth) =
+                                                h_get.get_webview_window("auth-boot")
+                                            {
+                                                match auth.eval(&auth_handshake_js(&token)) {
+                                                    Ok(()) => {
+                                                        eprintln!("[dsh] auth window fetch ok")
+                                                    }
+                                                    Err(e) => {
                                                         eprintln!(
-                                                            "[dsh] auth handshake dispatch failed"
-                                                        );
-                                                        break;
+                                                            "[dsh] auth window fetch failed: {e}"
+                                                        )
                                                     }
                                                 }
-                                            });
+                                            }
+                                        });
+                                    }
+                                    // Give the fetch round-trip time to store the
+                                    // cookie in the shared data store.
+                                    std::thread::sleep(Duration::from_millis(700));
+                                }
+                                // Main window: straight to the clean root; with the
+                                // cookie now held it serves the UI directly.
+                                let h_nav = dispatch_handle.clone();
+                                let h_poll = h_nav.clone();
+                                let win_nav = win.clone();
+                                let clean_url = clean_url.clone();
+                                let need_auth = need_auth;
+                                let dispatched = h_nav.run_on_main_thread(move || {
+                                    eprintln!("[dsh] navigating main window to {clean_url}");
+                                    match win_nav
+                                        .navigate(clean_url.parse().expect("clean URL parses"))
+                                    {
+                                        Ok(()) => eprintln!("[dsh] main navigate() ok"),
+                                        Err(e) => {
+                                            eprintln!("[dsh] main navigate() failed: {e}")
                                         }
                                     }
-                                    Err(e) => {
-                                        eprintln!("[dsh] navigate() failed: {e}; eval fallback");
-                                        let _ = win.eval(&format!(
-                                            "window.location.href = '{}';",
-                                            url
-                                        ));
+                                    let _ = win_nav.show();
+                                    if need_auth {
+                                        // Fallback: if the main window ever lands on
+                                        // the wall (hidden exchange missed its timing),
+                                        // keep completing the exchange in place — fast
+                                        // first, then a slow tail for cold boots. Each
+                                        // eval only acts while the wall is showing.
+                                        let win_poll = win_nav.clone();
+                                        let token_poll = token.clone();
+                                        std::thread::spawn(move || {
+                                            let mut attempt = 0u32;
+                                            loop {
+                                                let step =
+                                                    if attempt < 25 { 200u64 } else { 800u64 };
+                                                std::thread::sleep(Duration::from_millis(step));
+                                                attempt += 1;
+                                                if attempt >= 95 {
+                                                    break;
+                                                }
+                                                let win = win_poll.clone();
+                                                let token = token_poll.clone();
+                                                let dispatched = h_poll
+                                                    .run_on_main_thread(move || {
+                                                    match win.eval(&auth_handshake_js(&token)) {
+                                                        Ok(()) => {
+                                                            if attempt % 12 == 0 {
+                                                                eprintln!(
+                                                                    "[dsh] auth handshake eval \
+                                                                     ok (attempt {attempt})"
+                                                                );
+                                                            }
+                                                        }
+                                                        Err(e) => eprintln!(
+                                                            "[dsh] auth handshake eval failed: {e}"
+                                                        ),
+                                                    }
+                                                });
+                                                if dispatched.is_err() {
+                                                    eprintln!(
+                                                        "[dsh] auth handshake dispatch failed"
+                                                    );
+                                                    break;
+                                                }
+                                            }
+                                        });
                                     }
+                                });
+                                if dispatched.is_err() {
+                                    eprintln!("[dsh] main navigate dispatch failed");
                                 }
-                                let _ = win.show();
+                                // Tidy the hidden window once the UI has booted.
+                                std::thread::sleep(Duration::from_millis(2500));
+                                let h_close = dispatch_handle.clone();
+                                let h_get = h_close.clone();
+                                let _ = h_close.run_on_main_thread(move || {
+                                    if let Some(auth) = h_get.get_webview_window("auth-boot") {
+                                        let _ = auth.close();
+                                    }
+                                });
                             });
-                            if let Err(e) = dispatched {
-                                eprintln!("[dsh] run_on_main_thread dispatch failed: {e}");
-                            }
                         }
                         Ok(err) => eprintln!("[dsh] {err}"),
                         Err(_) => eprintln!("[dsh] timed out waiting for the harness server URL"),
