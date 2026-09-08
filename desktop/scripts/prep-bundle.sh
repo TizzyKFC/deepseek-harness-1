@@ -40,7 +40,27 @@ mkdir -p "$STAGING"
 #    follow them, so pnpm's node_modules symlink cycles survive the archive
 #    and re-extract correctly — unlike a recursive copy.
 echo "==> Archiving harness checkout -> $HARNESS_TARBALL"
-tar --exclude='./.git' --exclude='./desktop' -C "$REPO_ROOT" -czf "$HARNESS_TARBALL" .
+# Only what the app needs at runtime is archived: source + built lib/dist +
+# node_modules. Upstream test suites, docs site, and runnable examples are
+# excluded so the packaged harness stays lean. Keep the sync-harness.sh
+# exclusion list in step with this one.
+tar \
+  --exclude='./.git' \
+  --exclude='./desktop' \
+  --exclude='./docs' \
+  --exclude='./website' \
+  --exclude='./examples' \
+  --exclude='*/tests/*' \
+  --exclude='*/__tests__/*' \
+  --exclude='*/__snapshots__/*' \
+  --exclude='*.spec.ts' \
+  --exclude='*.spec.tsx' \
+  --exclude='*.test.ts' \
+  --exclude='*.test.tsx' \
+  --exclude='*.e2e.ts' \
+  --exclude='*.snap' \
+  --exclude='*.tsbuildinfo' \
+  -C "$REPO_ROOT" -czf "$HARNESS_TARBALL" .
 
 # 2) Download + stage the official Node runtime (only bin/node is needed;
 #    npm and the rest of the distribution are not required at runtime).

@@ -119,7 +119,9 @@ desktop/
    `packages/client/ui-skin-toggle/` 复制进新树，并列出需手工合并的文件。
 3. 按 `CUSTOMIZATIONS.md` 的 B 段合并那几处官方文件的修改（这是唯一需要人工的点）。
 4. 在新树内 `pnpm install && pnpm run build`。
-5. 退出 app，用 tar 把新树重建到数据目录 `harness-<版本>`（写入 `echo ok > .extracted`），
-   重启 app。用户数据在 `dsh/`，不受影响。
+5. 一键同步到 app：`desktop/scripts/sync-harness.sh`——自动退出 app、把「运行所需」
+   （源码 + 构建产物 + node_modules）归档并重建数据目录 `harness-<版本>`（自动排除
+   官方测试/文档/示例，与打包 prep 的排除规则一致），随后重启 app 即可。用户数据在
+   `dsh/`，不受影响。
 
 需要连同桌面壳一起更新（改了 `desktop/` 内 Rust/配置）时，才走上面的「重新打包」。
