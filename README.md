@@ -2,12 +2,25 @@
 
 English | [中文](README.zh.md)
 
-> **Local desktop variant.** This checkout layers a Tauri **macOS desktop app**
-> (Dock app running the bundled Web UI; see [`desktop/README.md`](desktop/README.md))
-> and built-in UI customizations (Blue Fantasy theme toggle, upstream update
-> check) on top of upstream `deepseek-harness`. The exact list of local changes
-> and how to replay them when following upstream releases lives in
-> [`CUSTOMIZATIONS.md`](CUSTOMIZATIONS.md).
+## DeepSeek Harness — macOS Desktop Build
+
+This repository is the upstream
+[`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness)
+agent harness, packaged as a **self-contained macOS desktop app** (Tauri) with a
+few built-in UI enhancements:
+
+- **Native Dock app** — runs the bundled Web UI in its own window; no browser or
+  Node install needed ([`desktop/README.md`](desktop/README.md))
+- **Blue Fantasy theme** — a built-in whale-background skin, switchable from the
+  sidebar (on by default)
+- **Upstream update check** — on launch, a dialog + notification appear when the
+  official project releases a newer version (never auto-overwrites local changes)
+- **Upstream-friendly** — exact list of local changes and a replay script for
+  following official releases: [`CUSTOMIZATIONS.md`](CUSTOMIZATIONS.md)
+
+The upstream source and documentation continue below.
+
+---
 
 DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
 
