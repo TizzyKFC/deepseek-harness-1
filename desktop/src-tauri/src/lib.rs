@@ -39,6 +39,25 @@ fn harness_url_of(line: &str) -> Option<String> {
     (url.starts_with("http://") || url.starts_with("https://")).then_some(url)
 }
 
+/// JavaScript that performs the 0.1.3 browser-session token exchange from the
+/// page's own origin. It only acts when the server's "authentication required"
+/// page is showing; a page that already loaded the UI is left untouched. The
+/// same-origin `fetch` stores the HttpOnly session cookie (the subresource
+/// path honors the 303 `Set-Cookie`, which a top-level navigation does not in
+/// WKWebView); reloading the clean root then serves the real index.
+fn auth_handshake_js(token: &str) -> String {
+    format!(
+        r#"(function () {{
+  var body = (document.body && (document.body.innerText || document.body.textContent)) || '';
+  if (body.indexOf('dsh web authentication required') === -1) return;
+  fetch('/?token={token}', {{ credentials: 'include', redirect: 'follow' }})
+    .catch(function () {{}})
+    .then(function () {{ window.location.href = '/'; }});
+}})();"#,
+        token = token,
+    )
+}
+
 /// Resource copying can drop the exec bit; make sure the bundled Node binary
 /// is executable before spawning it.
 #[cfg(unix)]
@@ -350,6 +369,7 @@ pub fn run() {
                         "tsx/esm",
                         "apps/cli/src/bin.ts",
                         "web",
+                        "--no-open",
                         "--port",
                         "0",
                     ])
@@ -408,11 +428,58 @@ pub fn run() {
                                     return;
                                 }
                             };
+                            let token = url
+                                .query_pairs()
+                                .find(|(key, _)| key == "token")
+                                .map(|(_, value)| value.into_owned())
+                                .unwrap_or_default();
                             let win = window.clone();
+                            // Owned handle for the auth-handshake thread; the
+                            // outer handle stays free for run_on_main_thread.
+                            let handshake_handle = handle.clone();
                             let dispatched = handle.run_on_main_thread(move || {
                                 eprintln!("[dsh] run_on_main_thread: navigating to {url}");
                                 match win.navigate(url.clone()) {
-                                    Ok(()) => eprintln!("[dsh] navigate() ok"),
+                                    Ok(()) => {
+                                        eprintln!("[dsh] navigate() ok");
+                                        // New-architecture (0.1.3) browser-session auth:
+                                        // WKWebView does not retain the HttpOnly cookie that
+                                        // answers the `?token=` 303 of a top-level
+                                        // navigation, leaving the window on the server's
+                                        // "authentication required" text. Drive the same
+                                        // exchange through a same-origin `fetch` (the
+                                        // subresource path stores the cookie), reloading the
+                                        // clean root once it is held. Repeated evals make the
+                                        // handshake robust to load timing.
+                                        if !token.is_empty() {
+                                            let win = win.clone();
+                                            let token = token.clone();
+                                            std::thread::spawn(move || {
+                                                for delay_ms in [1200u64, 2600, 4200] {
+                                                    std::thread::sleep(Duration::from_millis(delay_ms));
+                                                    let win = win.clone();
+                                                    let token = token.clone();
+                                                    let dispatched =
+                                                        handshake_handle.run_on_main_thread(move || {
+                                                        match win.eval(&auth_handshake_js(&token)) {
+                                                            Ok(()) => {
+                                                                eprintln!("[dsh] auth handshake eval ok")
+                                                            }
+                                                            Err(e) => eprintln!(
+                                                                "[dsh] auth handshake eval failed: {e}"
+                                                            ),
+                                                        }
+                                                    });
+                                                    if dispatched.is_err() {
+                                                        eprintln!(
+                                                            "[dsh] auth handshake dispatch failed"
+                                                        );
+                                                        break;
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    }
                                     Err(e) => {
                                         eprintln!("[dsh] navigate() failed: {e}; eval fallback");
                                         let _ = win.eval(&format!(
