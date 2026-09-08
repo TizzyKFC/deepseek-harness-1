@@ -23,6 +23,10 @@ STAGING="$SRC_TAURI/staging"
 HARNESS_TARBALL="$STAGING/harness.tar.gz"
 NODE_DIR="$STAGING/node"
 PNPM_DIR="$STAGING/pnpm"
+# Which checkout is archived as the bundled harness. Defaults to the repository
+# root; a release can bundle a different upstream checkout (for example an
+# official tag the shell has been adapted to) by passing HARNESS_SRC.
+HARNESS_SRC="${HARNESS_SRC:-$REPO_ROOT}"
 
 # Keep in sync with the Node used to build the project (engines: ^22.19.0 || >=24.0.0).
 NODE_VERSION="${DSH_DESKTOP_NODE_VERSION:-26.7.0}"
@@ -60,7 +64,7 @@ tar \
   --exclude='*.e2e.ts' \
   --exclude='*.snap' \
   --exclude='*.tsbuildinfo' \
-  -C "$REPO_ROOT" -czf "$HARNESS_TARBALL" .
+  -C "$HARNESS_SRC" -czf "$HARNESS_TARBALL" .
 
 # 2) Download + stage the official Node runtime (only bin/node is needed;
 #    npm and the rest of the distribution are not required at runtime).

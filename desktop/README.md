@@ -81,7 +81,8 @@ npm run dmg        # = prep-bundle.sh + tauri build --bundles dmg
 
 产物：`desktop/src-tauri/target/release/bundle/dmg/DeepSeek Harness_<版本>_aarch64.dmg`
 
-可选环境变量：`DSH_DESKTOP_NODE_VERSION`（默认 26.7.0）、`DSH_DESKTOP_PNPM_VERSION`（默认 11.7.0）。
+可选环境变量：`DSH_DESKTOP_NODE_VERSION`（默认 26.7.0）、`DSH_DESKTOP_PNPM_VERSION`（默认 11.7.0）、
+`HARNESS_SRC`（打进 DMG 的 harness checkout，默认本仓库根；适配别的官方基线时指向该官方树，如 `HARNESS_SRC=/path/to/官方0.1.3树 bash scripts/prep-bundle.sh`）。
 
 > 版本三处同步：`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`package.json`。
 > 升版本后**删除**数据目录里的 `harness-<旧版本>`，否则同版本会复用旧解压而不重新解压。
@@ -107,21 +108,15 @@ desktop/
 - **插件管理**：Rust 壳调用 harness 自带的 `dsh plugin --profile web` 命令，并把内置 pnpm/node 的 bin 目录前置到 PATH，复用 harness 的 profile 初始化与 bundle 调和逻辑。
 - **安全**：服务器仅监听 `127.0.0.1`，不对外暴露。
 
-## 跟随官方升级（保留本地定制）
+## 跟随官方升级
 
-本仓库 = 官方 `deepseek-ai/deepseek-harness` 源码 + 桌面定制，已用 git 管理并推送
-到用户自己的远端。**定制明细、修改点与重放方式见仓库根 `CUSTOMIZATIONS.md`**。
-
-收到更新提醒后，升级 harness 内部（通常不必重打包）：
-
-1. 取官方新 tag 源码树（本仓库已配 `upstream` 指向官方，可 `git fetch upstream` 或下载官方 tar）。
-2. 跑 `desktop/scripts/apply-customizations.sh <官方新树>`：自动把 `desktop/` 与
-   `packages/client/ui-skin-toggle/` 复制进新树，并列出需手工合并的文件。
-3. 按 `CUSTOMIZATIONS.md` 的 B 段合并那几处官方文件的修改（这是唯一需要人工的点）。
-4. 在新树内 `pnpm install && pnpm run build`。
-5. 一键同步到 app：`desktop/scripts/sync-harness.sh`——自动退出 app、把「运行所需」
-   （源码 + 构建产物 + node_modules）归档并重建数据目录 `harness-<版本>`（自动排除
-   官方测试/文档/示例，与打包 prep 的排除规则一致），随后重启 app 即可。用户数据在
-   `dsh/`，不受影响。
-
-需要连同桌面壳一起更新（改了 `desktop/` 内 Rust/配置）时，才走上面的「重新打包」。
+- **当前 shipped 基线 = 官方 `0.1.3-alpha.2`（直接适配，已端到端验证）**，定制明细见仓库根 `CUSTOMIZATIONS.md`。
+  0.1.3 适配全在 `desktop/`：`lib.rs` 的 `--no-open` + 认证握手（0.1.3 用 `?token=` 换 HttpOnly
+  cookie；WKWebView 顶层导航不保留 303 的 Set-Cookie，改为在 401 页内同源 `fetch` 换 cookie 后重载 `/`）；
+  `prep-bundle.sh` 新增 `HARNESS_SRC` 指向官方树。
+- **升级 harness 内部（不必重打包壳）**：取官方新树 → 新树内 `pnpm install && pnpm run build`
+  → `desktop/scripts/sync-harness.sh`（自动退出 app、归档运行所需并重建 `data_dir/harness-<版本>`，
+  自动排除官方测试/文档/示例；用户数据在 `dsh/` 不受影响）→ 重启 app。
+- **换新基线并连壳一起出新 DMG**：`cd desktop && HARNESS_SRC=<官方新树> bash scripts/prep-bundle.sh && npx tauri build --bundles dmg`（见「重新打包」）。
+- 旧的 0.1.0 定制重放流程（`apply-customizations.sh`、`ui-skin-toggle` 皮肤 6 处合并）见
+  `CUSTOMIZATIONS.md` A/B 段；皮肤在 0.1.3 上重写落地前仅供历史参考。

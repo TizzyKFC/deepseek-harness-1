@@ -1,10 +1,20 @@
 # DeepSeek Harness 本地定制清单
 
-本仓库 = 官方 `deepseek-ai/deepseek-harness` 源码 + 桌面化定制。本文件用于在**跟随官方升级**时精确重放定制。升级流程见文末。
+本仓库 = 官方 `deepseek-ai/deepseek-harness` 源码 + 桌面化定制。
 
-> 现状：本地官方部分 ≈ 官方 `0.1.0` 系列（package.json `0.1.0-rc.5`），不是某个 tag 的精确快照。官方已到 `dsh-v0.1.3-alpha.2`。
+## 现状（2026-09）：两条线
 
-## A. 纯新增（官方上游没有，直接整树复制即可）
+- **Shipped（DMG 内置）基线 = 官方 `0.1.3-alpha.2`（直接适配，已端到端验证）**。打 DMG 时 `prep-bundle.sh` 用 `HARNESS_SRC` 指向官方 0.1.3 checkout，harness 代码**不并入**本仓库 `packages/` 源码树。
+- **本仓库 `packages/` 源码树 = 0.1.0-rc.5 定制老树**（历史线）。下文 A/B 段 + `packages/client/ui-skin-toggle/` 皮肤切换都是在这一棵老树上做的；皮肤要在 0.1.3 上按新 settings API 重写，**延后**，故 0.1.3 基线不含皮肤。
+
+## 0.1.3 直接适配（改动全部在 desktop/，提交 1bfba81 + prep 参数化）
+
+1. `desktop/src-tauri/src/lib.rs`
+   - spawn 参数加 `--no-open`：0.1.3 CLI 才支持；不传则浏览器接管打印第二行 readiness 到已关闭的 stdout → node `EPIPE` 崩溃（0.1.0 CLI 不认该参数）。
+   - 认证握手 `auth_handshake_js`：0.1.3 用 `?token=` 换 HttpOnly cookie（GET `/?token=` 命中 → 303 `Location:/` + `Set-Cookie dsh-auth-…`，干净 `/` 带 cookie 才返回 index）。WKWebView **顶层导航的 303 Set-Cookie 不入 cookie jar** → 窗口停在 401『dsh web authentication required』。修复：在 401 页上执行同源 `fetch('/?token=…',{credentials:'include',redirect:'follow'})`（子资源路径正确存 cookie）再 `location.href='/'`；导航后 1.2/2.6/4.2s 用 `run_on_main_thread`+`eval` 重试三次（闭包内 handle 需预克隆，否则 E0505）。
+2. `desktop/scripts/prep-bundle.sh`：新增 `HARNESS_SRC` 环境变量（默认仓库根），允许把别的 checkout 打成 DMG 内置 harness 基线。
+
+## A. 纯新增（官方上游没有，直接整树复制即可）【0.1.0 老树定制】
 
 | 路径 | 内容 |
 |---|---|
@@ -17,7 +27,7 @@ cp -R desktop/            <官方新树>/desktop/
 cp -R packages/client/ui-skin-toggle/ <官方新树>/packages/client/ui-skin-toggle/
 ```
 
-## B. 修改官方文件（6 处，官方升级时需逐处合并）
+## B. 修改官方文件（6 处，官方升级时需逐处合并）【0.1.0 老树定制】
 
 ### 1. `packages/bundle/web-app/package.json`
 - `dependencies` 加：
@@ -62,12 +72,13 @@ cp -R packages/client/ui-skin-toggle/ <官方新树>/packages/client/ui-skin-tog
 ### 6. 若官方 client 聚合需要
 - 若新版把 client 包聚合进某 manifest/`tsdown`/bundle 清单，把 `ui-skin-toggle` 加入与 `ui-task-board` 同级的位置（skin-toggle 自己带 `cordis.patch.yml` 里注册的 client bundle 入口，见 `packages/client/ui-skin-toggle/tsdown.config.ts`）。
 
-## 升级流程（跟随官方）
+## 打 DMG / 升级流程（0.1.3 直接适配）
 
-1. 获取官方新树（推荐用 git：本仓库已配 `upstream` 指向官方，`git fetch upstream` 后取新 tag/分支内容到临时目录；或下载官方 tag tar）。
-2. 复制 A 段两个新增目录进新树。
-3. 按 B 段逐处合并 6 处修改（官方若改动了同一文件，冲突点就在这几处，手工对齐即可——这是**全部**需要人工的地方）。
-4. `pnpm install && pnpm run build`（新树内）。
-5. 把新树同步进桌面 app：见 `desktop/README.md` / 会话记忆的 tar 同步方案（`data_dir/harness-<版本>` 重建，改 `desktop` 版本号三处后也可整包）。
+1. 取官方 0.1.3 checkout（本会话：`/tmp/upgrade-test/deepseek-harness-dsh-v0.1.3-alpha.2`，已 `pnpm install --force && pnpm run build`）。
+2. 打 staging：`cd desktop && HARNESS_SRC=<官方树> bash scripts/prep-bundle.sh`（压缩约 5 分钟，产物 staging/harness.tar.gz ≈2.6G；staging 已就绪可跳过）。
+3. 建 DMG：`cd desktop && npx tauri build --bundles dmg`（产物 `src-tauri/target/release/bundle/dmg/DeepSeek Harness_<ver>_aarch64.dmg`）。
+4. 验证（真机全链路）：装载 DMG → `ditto` 覆盖 `/Applications/DeepSeek Harness.app` → **删** `data_dir/harness-<ver>`（强制从新包 tar 重解压，`dsh/` 用户数据不动）→ 启动：解压出的 harness `package.json` 版本应为 `0.1.3-alpha.2`，日志见 `navigate() ok` + 三次 `auth handshake eval ok`，node 与 WebKit 建两条 ESTABLISHED 连接（UI 已加载），窗口截图可见 0.1.3 UI。
 
-可用脚本 `desktop/scripts/apply-customizations.sh <官方新树>` 自动执行 A 段复制 + 校验 B 段文件存在性，见该脚本头部说明。
+把 0.1.3 checkout 替换成新官方版本即同流程升级；壳（desktop/）改完只重编译不重打 harness。
+
+> A/B 段与 `apply-customizations.sh` 描述的是 0.1.0 老树定制，皮肤在 0.1.3 落地前仅供历史参考。
